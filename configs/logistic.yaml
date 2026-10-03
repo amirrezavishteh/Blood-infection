@@ -1,0 +1,11 @@
+# Regularised logistic-regression baseline (train-only clipping, median imputation + indicators, scaling).
+dataset: physionet2019
+target_id: challenge2019_state
+seed: 2019
+features: {feature_set: basic, include_admin: false, windows: [3, 6, 12], vital_expiry_h: 6, lab_expiry_h: 48}
+model:
+  kind: logistic
+  params: {clip_lower: 0.005, clip_upper: 0.995, max_iter: 3000}
+  grid:
+    C: [0.01, 0.1]
+    class_weight: [null, balanced]

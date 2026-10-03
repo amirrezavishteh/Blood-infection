@@ -1,0 +1,8 @@
+# Target A: supplied SepsisLabel used unchanged (positive from onset-6h onward).
+target_id: challenge2019_state
+label_version: challenge2019_state@1
+dataset: physionet2019
+# Feature sets prepared (cached) by `prepare`; expiry settings chosen a priori, not tuned on test data.
+feature_sets:
+  - {feature_set: basic, include_admin: false, windows: [3, 6, 12], vital_expiry_h: 6, lab_expiry_h: 48}
+  - {feature_set: extended, include_admin: false, windows: [3, 6, 12], vital_expiry_h: 6, lab_expiry_h: 48}

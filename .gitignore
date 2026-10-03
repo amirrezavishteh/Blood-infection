@@ -1,0 +1,24 @@
+# Research data and derived artifacts (row-level; governed by source terms)
+data/
+artifacts/
+!data/.gitkeep
+!artifacts/.gitkeep
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Node
+node_modules/
+apps/web/dist/
+
+# Local databases and logs
+*.db
+*.db-journal
+*.log
+.env

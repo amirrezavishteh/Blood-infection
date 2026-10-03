@@ -1,0 +1,13 @@
+# CPU LightGBM candidate; small predefined grid; early stopping on a_validation only.
+dataset: physionet2019
+target_id: challenge2019_state
+seed: 2019
+features: {feature_set: basic, include_admin: false, windows: [3, 6, 12], vital_expiry_h: 6, lab_expiry_h: 48}
+model:
+  kind: lightgbm
+  params: {learning_rate: 0.05, feature_fraction: 0.8, bagging_fraction: 0.8, lambda_l2: 1.0,
+           max_rounds: 3000, early_stopping: 100}
+  grid:
+    num_leaves: [31, 63]
+    min_child_samples: [100, 400]
+    class_weight: [null, balanced]

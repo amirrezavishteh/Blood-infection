@@ -1,0 +1,6 @@
+# Alert-policy search on a_validation. Budgets are simulated research comparison points
+# (alerts per 100 observed patient-days), not clinically approved limits.
+budgets: [1, 2, 5, 10, 20]
+primary_budget: 10
+consecutive: [1, 2, 3]
+cooldown_h: [0, 6, 12]

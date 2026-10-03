@@ -1,0 +1,15 @@
+# Dataset definition for PhysioNet/CinC Challenge 2019 v1.0.0 (CC BY 4.0).
+dataset: physionet2019
+dataset_version: "1.0.0"
+source_url: https://physionet.org/files/challenge-2019/1.0.0/training/
+hospitals: [A, B]
+expected_counts: {A: 20336, B: 20000}
+download:
+  workers: 24        # modest concurrency; resumable; retries with backoff
+  retries: 5
+  timeout_s: 60
+split:
+  seed: 2019
+  stratify_by: ever_positive
+  fractions: {a_train: 0.60, a_validation: 0.15, a_calibration: 0.10, a_test: 0.15}
+  external: b_external   # all hospital B records; never used for fitting or selection
