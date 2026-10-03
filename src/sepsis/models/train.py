@@ -78,7 +78,10 @@ def _fit_lightgbm(X, y, Xv, yv, names, params, seed):
         "feature_fraction": params.get("feature_fraction", 0.8),
         "bagging_fraction": params.get("bagging_fraction", 0.8), "bagging_freq": 1,
         "lambda_l2": params.get("lambda_l2", 1.0), "seed": seed, "deterministic": True,
-        "num_threads": params.get("num_threads", 0), "verbose": -1, "metric": "binary_logloss",
+        "num_threads": params.get("num_threads", 0), "verbose": -1,
+        # Early stopping watches validation average precision: log-loss is distorted by class
+        # weighting (weighted runs stopped after one round) and is not the selection metric.
+        "metric": params.get("early_stopping_metric", "average_precision"), "first_metric_only": True,
     }
     if params.get("class_weight") == "balanced":
         base["scale_pos_weight"] = float((y == 0).sum() / max((y == 1).sum(), 1))
