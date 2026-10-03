@@ -1,0 +1,24 @@
+[Unit]
+Description=Sepsis research simulator worker (replay jobs)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sepsis
+Group=sepsis
+WorkingDirectory=/opt/sepsis
+EnvironmentFile=/etc/sepsis/sepsis.env
+ExecStart=/opt/sepsis/.venv/bin/python -m worker
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/sepsis
+
+[Install]
+WantedBy=multi-user.target

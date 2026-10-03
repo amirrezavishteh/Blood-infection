@@ -22,3 +22,6 @@ apps/web/dist/
 *.db-journal
 *.log
 .env
+
+# Deployment secrets
+infra/.env

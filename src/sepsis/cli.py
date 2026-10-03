@@ -159,6 +159,45 @@ def cmd_report(a):
     print(path)
 
 
+def cmd_demo(a):
+    """Build a synthetic demo workspace end to end (no download): fixture -> model -> policy -> reports.
+
+    Everything lands under the --data-dir / --artifact-dir in effect (pass both, e.g.
+    ``--data-dir data/demo/data --artifact-dir data/demo/artifacts``), then
+    ``serve`` with the same two options. Synthetic data only: its metrics mean nothing clinically.
+    """
+    from sepsis.data.prepare import prepare
+    from sepsis.data.splits import make_splits, save_splits
+    from sepsis.data.store import Store
+    from sepsis.data.synthetic import make_fixture
+    from sepsis.evaluation.pipeline import evaluate, select_policy
+    from sepsis.evaluation.report import build_experiments_report
+    from sepsis.models.train import calibrate, train
+    from sepsis.paths import artifact_dir, data_dir, raw_dir
+
+    if not os.environ.get("SEPSIS_DATA_DIR") or not os.environ.get("SEPSIS_ARTIFACT_DIR"):
+        raise SystemExit("demo needs explicit --data-dir and --artifact-dir so it never mixes with real data")
+    print(f"[1/5] synthetic fixture -> {raw_dir('physionet2019')}")
+    make_fixture(raw_dir("physionet2019"), n_a=a.n_a, n_b=a.n_b, seed=a.seed)
+    print("[2/5] Parquet store, splits, features")
+    prepare("physionet2019", workers=a.workers, require_expected_counts=False)
+    store = Store.for_dataset("physionet2019")
+    save_splits(make_splits(store.encounters, seed=2019), store.splits_path)
+    store = Store.for_dataset("physionet2019")
+    print("[3/5] training LightGBM")
+    cfg = _load_yaml("configs/lightgbm.yaml")
+    cfg["model"]["grid"] = {"num_leaves": [31], "min_child_samples": [100], "class_weight": [None]}
+    run_dir = train(cfg, store=store, run_id="demo-lgbm")
+    print("[4/5] calibration and alert policy")
+    calibrate(run_dir, store=store)
+    select_policy(run_dir, store=store)
+    print("[5/5] evaluation reports")
+    for split in ("a_test", "b_external"):
+        evaluate(run_dir, split, store=store, n_boot=50)
+    build_experiments_report()
+    print(f"demo ready: data {data_dir()} | artifacts {artifact_dir()}")
+
+
 def cmd_serve(a):
     """Start the worker and the API (which also serves the built dashboard) on localhost."""
     import subprocess
@@ -217,6 +256,11 @@ def main(argv=None):
     s.add_argument("--seed", type=int, default=7); s.set_defaults(fn=cmd_fixture)
 
     s = sub.add_parser("report"); s.set_defaults(fn=cmd_report)
+
+    s = sub.add_parser("demo", help="build a synthetic demo workspace (no download)")
+    s.add_argument("--n-a", type=int, default=1500); s.add_argument("--n-b", type=int, default=600)
+    s.add_argument("--seed", type=int, default=21); s.add_argument("--workers", type=int, default=4)
+    s.set_defaults(fn=cmd_demo)
 
     s = sub.add_parser("serve"); s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8000); s.set_defaults(fn=cmd_serve)

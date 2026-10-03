@@ -1,35 +1,50 @@
-# Single-machine demo: PostgreSQL + API (serves the dashboard) + worker.
-# Prepare data and train on the host first (python -m sepsis ...), then:
-#   docker compose -f infra/docker-compose.yml up --build
-# Binds to localhost only. Not for patient care.
+# Single-host deployment: PostgreSQL + API (serves the dashboard) + worker.
+#
+#   cp infra/.env.example infra/.env        # then edit the secrets
+#   docker compose -f infra/docker-compose.yml --env-file infra/.env up -d --build
+#
+# Data and artifacts live on the host (../data, ../artifacts) and are mounted, never baked into
+# the image. The API is published on localhost only; put a TLS reverse proxy in front of it
+# (docs/DEPLOYMENT.md). Research use only: not for patient care.
 services:
   db:
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: sepsis
-      POSTGRES_PASSWORD: sepsis-local-dev
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in infra/.env}
       POSTGRES_DB: sepsis
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sepsis"]
       interval: 5s
       retries: 10
+
   api:
     build: {context: .., dockerfile: infra/Dockerfile}
+    restart: unless-stopped
     environment: &env
-      DATABASE_URL: postgresql+psycopg://sepsis:sepsis-local-dev@db:5432/sepsis
-      SEPSIS_DATA_DIR: /app/data
-      SEPSIS_ARTIFACT_DIR: /app/artifacts
+      DATABASE_URL: postgresql+psycopg://sepsis:${POSTGRES_PASSWORD}@db:5432/sepsis
+      SEPSIS_DATA_DIR: ${SEPSIS_DATA_DIR:-/app/data}
+      SEPSIS_ARTIFACT_DIR: ${SEPSIS_ARTIFACT_DIR:-/app/artifacts}
+      SEPSIS_API_TOKEN: ${SEPSIS_API_TOKEN:-}
     volumes: &vols
       - ../data:/app/data
       - ../artifacts:/app/artifacts
-    ports: ["127.0.0.1:8000:8000"]
+    ports: ["127.0.0.1:${API_PORT:-8000}:8000"]
     depends_on: {db: {condition: service_healthy}}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live')"]
+      interval: 15s
+      retries: 5
+
   worker:
     build: {context: .., dockerfile: infra/Dockerfile}
+    restart: unless-stopped
     command: ["python", "-m", "worker"]
     environment: *env
     volumes: *vols
     depends_on: {db: {condition: service_healthy}}
+
 volumes:
   pgdata:

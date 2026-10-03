@@ -1,0 +1,23 @@
+[Unit]
+Description=Sepsis research simulator API (serves the dashboard)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sepsis
+Group=sepsis
+WorkingDirectory=/opt/sepsis
+EnvironmentFile=/etc/sepsis/sepsis.env
+ExecStart=/opt/sepsis/.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000 --workers 2 --proxy-headers
+Restart=on-failure
+RestartSec=5
+# Hardening: read-only system, writes only to the data/artifact directories
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/sepsis
+
+[Install]
+WantedBy=multi-user.target

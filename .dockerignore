@@ -1,0 +1,10 @@
+# Keep the build context small: data and artifacts are mounted at runtime, never baked in.
+data/
+artifacts/
+.venv/
+**/node_modules/
+apps/web/dist/
+.git/
+**/__pycache__/
+.pytest_cache/
+*.db
