@@ -583,4 +583,5 @@ if (_WEB_DIST / "index.html").exists():
 
     @app.get("/", include_in_schema=False)
     def index():
-        return FileResponse(_WEB_DIST / "index.html")
+        # index.html must revalidate so a rebuilt dashboard (new hashed assets) is picked up
+        return FileResponse(_WEB_DIST / "index.html", headers={"Cache-Control": "no-cache"})

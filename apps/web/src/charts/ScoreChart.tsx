@@ -77,7 +77,9 @@ export function ScoreChart({ points, threshold, alertHours, xMax, labels, onsetP
         {onsetProxy != null && onsetProxy <= domainMax && (
           <g>
             <line x1={x(onsetProxy)} x2={x(onsetProxy)} y1={M.top} y2={M.top + ih} stroke="var(--status-critical)" strokeWidth={1} />
-            <text x={x(onsetProxy) + 4} y={M.top + 10}>onset proxy</text>
+            {/* keep the label inside the plot when onset is near the right edge */}
+            <text x={x(onsetProxy) > width - 120 ? x(onsetProxy) - 4 : x(onsetProxy) + 4} y={M.top + 10}
+                  textAnchor={x(onsetProxy) > width - 120 ? "end" : "start"}>onset proxy</text>
           </g>
         )}
         {segments.map((seg, i) =>
