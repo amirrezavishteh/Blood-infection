@@ -427,6 +427,9 @@ def patient_timeline(replay_id: str, stay_id: str, until_hour: int | None = None
         if until_hour is not None and until_hour > clock:
             raise HTTPException(403, f"hour {until_hour} is beyond the replay clock ({clock})")
         limit = clock if until_hour is None else until_hour
+        ended = clock >= st.n_hours - 1
+        # once a record has ended at the replay clock, freshness is relative to its last hour
+        limit = min(limit, st.n_hours - 1)
         preds = s.scalars(select(Prediction).where(Prediction.replay_id == replay_id,
                                                    Prediction.stay_id == stay_id,
                                                    Prediction.hour_index <= limit)
@@ -441,14 +444,15 @@ def patient_timeline(replay_id: str, stay_id: str, until_hour: int | None = None
     freshness = {}
     for v in CLINICAL:
         col = rows[v].to_numpy(dtype=float)
-        pts = [{"hour": int(hh), "value": float(x)} for hh, x in zip(rows["hour_index"], col) if not np.isnan(x)]
+        pts = [{"hour": int(hh), "value": float(f"{x:.6g}")}  # float32 storage -> source precision
+               for hh, x in zip(rows["hour_index"], col) if not np.isnan(x)]
         if pts:
             observations[v] = pts
             freshness[v] = {"last_hour": pts[-1]["hour"], "hours_since": int(limit - pts[-1]["hour"])}
     demo = rows.iloc[0][["Age", "Gender"]].to_dict() if len(rows) else {}
     latest = preds[-1] if preds else None
     return {
-        "replay_id": replay_id, "stay_id": stay_id, "clock": clock, "through_hour": limit,
+        "replay_id": replay_id, "stay_id": stay_id, "clock": clock, "through_hour": limit, "record_ended": ended,
         "target_id": r.target_id, "model_version": r.model_version, "policy_version": r.policy_version,
         "feature_schema_version": r.feature_schema_version,
         "demographics": {"Age": _clean(demo.get("Age")), "Gender_source_code": _clean(demo.get("Gender"))},

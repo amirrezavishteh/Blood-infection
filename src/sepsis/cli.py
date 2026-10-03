@@ -159,6 +159,24 @@ def cmd_report(a):
     print(path)
 
 
+def cmd_serve(a):
+    """Start the worker and the API (which also serves the built dashboard) on localhost."""
+    import subprocess
+
+    from sepsis.paths import PROJECT_ROOT
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join([str(PROJECT_ROOT / "src"), str(PROJECT_ROOT / "apps"),
+                                         env.get("PYTHONPATH", "")])
+    worker = subprocess.Popen([sys.executable, "-m", "worker"], env=env, cwd=PROJECT_ROOT)
+    try:
+        subprocess.run([sys.executable, "-m", "uvicorn", "api.main:app", "--host", a.host, "--port", str(a.port)],
+                       env=env, cwd=PROJECT_ROOT, check=False)
+    finally:
+        worker.terminate()
+        worker.wait(timeout=10)
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="python -m sepsis", description=__doc__)
     p.add_argument("--data-dir", help="override data directory (SEPSIS_DATA_DIR)")
@@ -199,6 +217,9 @@ def main(argv=None):
     s.add_argument("--seed", type=int, default=7); s.set_defaults(fn=cmd_fixture)
 
     s = sub.add_parser("report"); s.set_defaults(fn=cmd_report)
+
+    s = sub.add_parser("serve"); s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--port", type=int, default=8000); s.set_defaults(fn=cmd_serve)
 
     a = p.parse_args(argv)
     if a.data_dir:

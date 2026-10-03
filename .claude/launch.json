@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "fixture-demo",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "sepsis", "--data-dir", "data/demo-fixture/data", "--artifact-dir", "data/demo-fixture/artifacts", "serve", "--port", "8010"],
+      "port": 8010
+    },
+    {
+      "name": "app",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "sepsis", "serve", "--port", "8000"],
+      "port": 8000
+    }
+  ]
+}

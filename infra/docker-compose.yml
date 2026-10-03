@@ -1,0 +1,35 @@
+# Single-machine demo: PostgreSQL + API (serves the dashboard) + worker.
+# Prepare data and train on the host first (python -m sepsis ...), then:
+#   docker compose -f infra/docker-compose.yml up --build
+# Binds to localhost only. Not for patient care.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: sepsis
+      POSTGRES_PASSWORD: sepsis-local-dev
+      POSTGRES_DB: sepsis
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sepsis"]
+      interval: 5s
+      retries: 10
+  api:
+    build: {context: .., dockerfile: infra/Dockerfile}
+    environment: &env
+      DATABASE_URL: postgresql+psycopg://sepsis:sepsis-local-dev@db:5432/sepsis
+      SEPSIS_DATA_DIR: /app/data
+      SEPSIS_ARTIFACT_DIR: /app/artifacts
+    volumes: &vols
+      - ../data:/app/data
+      - ../artifacts:/app/artifacts
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on: {db: {condition: service_healthy}}
+  worker:
+    build: {context: .., dockerfile: infra/Dockerfile}
+    command: ["python", "-m", "worker"]
+    environment: *env
+    volumes: *vols
+    depends_on: {db: {condition: service_healthy}}
+volumes:
+  pgdata:

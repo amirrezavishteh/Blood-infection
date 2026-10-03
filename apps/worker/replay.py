@@ -194,7 +194,9 @@ def validate_dataset(dataset_id: int) -> dict:
             "invalid_files": q["invalid_files"], "schema": q["schema"],
             "raw_manifest_sha256": q.get("raw_manifest_sha256"), "outputs": q.get("outputs"),
             "splits": split["counts"], "split_hash": split["split_hash"],
-            "license": "CC BY 4.0 (PhysioNet/CinC Challenge 2019)",
+            "synthetic": bool(q.get("synthetic")),
+            "license": ("synthetic fixture (no patient data)" if q.get("synthetic")
+                        else "CC BY 4.0 (PhysioNet/CinC Challenge 2019)"),
         }
         with transaction() as s:
             ds = s.get(Dataset, dataset_id)
