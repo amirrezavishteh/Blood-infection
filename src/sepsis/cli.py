@@ -143,7 +143,7 @@ def cmd_promote(a):
     from sepsis.models.train import promote
 
     out = bundle_root().parent / "promotion.json"
-    print(json.dumps(promote([_resolve_run(r) for r in a.runs], out), indent=1))
+    print(json.dumps(promote([_resolve_run(r) for r in a.runs], out, note=a.note), indent=1))
 
 
 def cmd_explain(a):
@@ -155,6 +155,12 @@ def cmd_explain(a):
         smd = row["smd_b_vs_a"]
         print(f"  {row['feature']:<28} {row['family']:<20} {row['importance_share']:.3f}  "
               f"SMD(B-A) {'n/a' if smd is None else f'{smd:+.2f}'}  missing A {row['missing_a_train']:.2f} B {row['missing_b']:.2f}")
+
+
+def cmd_model_card(a):
+    from sepsis.evaluation.model_card import build_model_card
+
+    print(build_model_card(_resolve_run(a.run)))
 
 
 def cmd_fixture(a):
@@ -260,11 +266,15 @@ def main(argv=None):
     s.add_argument("--n-boot", type=int, default=200); s.add_argument("--no-official", action="store_true")
     s.set_defaults(fn=cmd_evaluate)
 
-    s = sub.add_parser("promote"); s.add_argument("--runs", nargs="+", required=True); s.set_defaults(fn=cmd_promote)
+    s = sub.add_parser("promote"); s.add_argument("--runs", nargs="+", required=True)
+    s.add_argument("--note", help="why these candidates (recorded in promotion.json)"); s.set_defaults(fn=cmd_promote)
 
     s = sub.add_parser("explain", help="global importance + hospital-B feature shift for a run")
     s.add_argument("--run", required=True); s.add_argument("--sample", type=int, default=20000)
     s.set_defaults(fn=cmd_explain)
+
+    s = sub.add_parser("model-card", help="write MODEL_CARD.md for a run from its own artifacts")
+    s.add_argument("--run", required=True); s.set_defaults(fn=cmd_model_card)
 
     s = sub.add_parser("fixture"); s.add_argument("--out", required=True)
     s.add_argument("--n-a", type=int, default=120); s.add_argument("--n-b", type=int, default=60)

@@ -246,7 +246,7 @@ def selection_auprc(meta: dict) -> float | None:
     return max((t["val_auprc"] for t in meta.get("tuning_trials", [])), default=None)
 
 
-def promote(run_dirs: list[Path], out: Path) -> dict:
+def promote(run_dirs: list[Path], out: Path, note: str | None = None) -> dict:
     """Validation-based selection among calibrated candidate runs."""
     rows = []
     for rd in run_dirs:
@@ -255,7 +255,7 @@ def promote(run_dirs: list[Path], out: Path) -> dict:
         rows.append({"run": b.model_version, "kind": b.meta["model_kind"], "val_auprc": best,
                      "feature_set": b.feature_config.feature_set})
     chosen = max(rows, key=lambda r: r["val_auprc"])
-    manifest = {"candidates": rows, "selected": chosen["run"], "rule": "max a_validation AUPRC",
+    manifest = {"candidates": rows, "selected": chosen["run"], "rule": "max a_validation AUPRC", "note": note,
                 "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     Path(out).write_text(json.dumps(manifest, indent=1))
     return manifest

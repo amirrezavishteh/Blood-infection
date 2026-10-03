@@ -123,3 +123,17 @@ def test_seed_bag_bundle_scores_and_explains(corpus):
     margin = np.log(raw / (1 - raw))
     np.testing.assert_allclose(contrib.sum(axis=1), margin, atol=1e-6)  # SHAP sums to the bag margin
     assert len(b.contributions(X[0])) == 8
+
+
+def test_explain_and_model_card(trained_run, corpus):
+    from sepsis.evaluation.explain import explain, feature_family
+    from sepsis.evaluation.model_card import build_model_card
+
+    r = explain(trained_run, store=corpus, sample=500, top=10)
+    assert abs(sum(r["family_share"].values()) - 1) < 1e-6
+    assert len(r["top_features"]) == 10 and (trained_run / "explain.json").exists()
+    assert feature_family("FiO2__hours_since") == "observation pattern"
+    assert feature_family("HR__mean_6h") == "vital sign" and feature_family("SOFA_partial") == "derived score"
+    card = build_model_card(trained_run).read_text(encoding="utf-8")
+    assert "Research use only" in card and "What the model relies on" in card
+    assert load_bundle(trained_run).model_version in card
