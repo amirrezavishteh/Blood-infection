@@ -11,16 +11,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 
-from sepsis.evaluation.utility import normalized_utility, sepsis_times
-
-
-def _stay_slices(stay_codes: np.ndarray) -> list[np.ndarray]:
-    n = len(stay_codes)
-    new = np.ones(n, dtype=bool)
-    new[1:] = stay_codes[1:] != stay_codes[:-1]
-    starts = np.flatnonzero(new)
-    ends = np.append(starts[1:], n)
-    return [np.arange(s, e) for s, e in zip(starts, ends)]
+from sepsis.evaluation.utility import best_predictions, normalized_utility, row_utilities, sepsis_times
 
 
 def _safe(fn, y, p):
@@ -29,21 +20,69 @@ def _safe(fn, y, p):
     return float(fn(y, p))
 
 
+class _Presorted:
+    """Scores sorted once; weighted AUROC/AUPRC per bootstrap replicate in O(n).
+
+    A record-level bootstrap replicate is equivalent to weighting every row by
+    how many times its record was drawn, so integer weights reproduce the
+    metrics of the duplicated sample exactly (ties included) without
+    re-sorting. Matches sklearn's ``roc_auc_score`` / ``average_precision_score``
+    with ``sample_weight`` (tested).
+    """
+
+    def __init__(self, y: np.ndarray, p: np.ndarray):
+        order = np.argsort(-p, kind="mergesort")
+        self.order = order
+        ps = p[order]
+        self.y = y[order].astype(np.float64)
+        last = np.ones(len(ps), dtype=bool)  # last row of each tie group
+        if len(ps) > 1:
+            last[:-1] = ps[1:] != ps[:-1]
+        self.ends = np.flatnonzero(last)
+
+    def metrics(self, w_rows: np.ndarray) -> tuple[float, float]:
+        w = w_rows[self.order]
+        tp = np.cumsum(w * self.y)[self.ends]
+        fp = np.cumsum(w * (1.0 - self.y))[self.ends]
+        P, N = tp[-1] if len(tp) else 0.0, fp[-1] if len(fp) else 0.0
+        if P <= 0 or N <= 0:
+            return float("nan"), float("nan")
+        tpr = np.concatenate([[0.0], tp / P])
+        fpr = np.concatenate([[0.0], fp / N])
+        auroc = float(np.trapezoid(tpr, fpr)) if hasattr(np, "trapezoid") else float(np.trapz(tpr, fpr))
+        with np.errstate(invalid="ignore", divide="ignore"):
+            precision = np.where(tp + fp > 0, tp / (tp + fp), 0.0)
+        auprc = float(np.sum(np.diff(np.concatenate([[0.0], tp / P])) * precision))
+        return auroc, auprc
+
+
 def bootstrap_ci(stay_codes, y, p, preds=None, n_boot: int = 200, seed: int = 0) -> dict:
-    """Percentile 95% CIs for AUROC, AUPRC (and utility if binary preds given)."""
-    slices = _stay_slices(stay_codes)
+    """Percentile 95% CIs for AUROC, AUPRC (and utility if binary preds given).
+
+    Records (stays) are the resampling unit. Each replicate draws records with
+    replacement and is evaluated as integer row weights: exact, and about two
+    orders of magnitude faster than materialising the resampled frame.
+    """
+    _, inv = np.unique(np.asarray(stay_codes), return_inverse=True)
+    n_stays = int(inv.max()) + 1 if len(inv) else 0
+    y = np.asarray(y).astype(int)
+    p = np.asarray(p, dtype=float)
+    pre = _Presorted(y, p)
+    if preds is not None:
+        t, ts = sepsis_times(np.asarray(stay_codes), y)
+        obs = np.bincount(inv, weights=row_utilities(t, ts, preds), minlength=n_stays)
+        best = np.bincount(inv, weights=row_utilities(t, ts, best_predictions(t, ts)), minlength=n_stays)
+        inact = np.bincount(inv, weights=row_utilities(t, ts, np.zeros(len(t), dtype=bool)), minlength=n_stays)
     rng = np.random.default_rng(seed)
     au, ap, ut = [], [], []
     for _ in range(n_boot):
-        pick = rng.integers(0, len(slices), len(slices))
-        idx = np.concatenate([slices[i] for i in pick])
-        # relabel stays so resampled duplicates stay distinct groups
-        codes = np.repeat(np.arange(len(pick)), [len(slices[i]) for i in pick])
-        yy, pp = y[idx], p[idx]
-        au.append(_safe(roc_auc_score, yy, pp))
-        ap.append(_safe(average_precision_score, yy, pp))
+        counts = np.bincount(rng.integers(0, n_stays, n_stays), minlength=n_stays).astype(np.float64)
+        a, b = pre.metrics(counts[inv])
+        au.append(a)
+        ap.append(b)
         if preds is not None:
-            ut.append(normalized_utility(codes, yy, preds[idx]))
+            den = counts @ best - counts @ inact
+            ut.append(float((counts @ obs - counts @ inact) / den) if den else float("nan"))
     out = {"auroc_ci": _pct(au), "auprc_ci": _pct(ap), "n_boot": n_boot, "unit": "record"}
     if preds is not None:
         out["utility_ci"] = _pct(ut)

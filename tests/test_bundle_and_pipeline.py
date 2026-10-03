@@ -102,3 +102,24 @@ def test_evaluate_held_out_splits(trained_run, corpus):
         assert (trained_run / "eval" / split / "report.md").exists()
     log = json.loads((trained_run / "evaluation_log.json").read_text())
     assert [e["split"] for e in log].count("b_external") >= 1
+
+
+def test_seed_bag_bundle_scores_and_explains(corpus):
+    """A seed-bagged LightGBM bundle saves, loads, scores and gives additive contributions."""
+    import copy
+
+    from conftest import SMALL_LGBM
+    from sepsis.models.train import calibrate, train
+
+    cfg = copy.deepcopy(SMALL_LGBM)
+    cfg["model"]["n_seeds"] = 3
+    run_dir = train(cfg, store=corpus, run_id="test-bag")
+    calibrate(run_dir, store=corpus)
+    b = load_bundle(run_dir)
+    assert b.meta["model_kind"] == "lightgbm_bag" and b.meta["bag"]["n_seeds"] == 3
+    X, _, _ = corpus.matrix(b.feature_config, "a_test", b.feature_names)
+    raw = b.raw_scores(X[:50])
+    contrib = b.model.contributions(X[:50])
+    margin = np.log(raw / (1 - raw))
+    np.testing.assert_allclose(contrib.sum(axis=1), margin, atol=1e-6)  # SHAP sums to the bag margin
+    assert len(b.contributions(X[0])) == 8

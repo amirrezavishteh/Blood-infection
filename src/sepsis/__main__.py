@@ -1,3 +1,5 @@
 from sepsis.cli import main
 
-main()
+
+if __name__ == "__main__":  # guard: spawned subprocesses must not re-run the CLI
+    main()

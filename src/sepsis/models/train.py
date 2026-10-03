@@ -128,9 +128,13 @@ def train(cfg: dict, store: Store | None = None, run_id: str | None = None) -> P
         res, model = best
         extra = {"dropped_features": model.named_steps["drop"].dropped_}
     elif kind == "lightgbm":
-        grid = cfg["model"].get("grid", {"num_leaves": [31], "min_child_samples": [100]})
+        search = cfg["model"].get("search")
+        if search:  # random search over a predefined space; selection on validation only
+            combos = _sample(search["space"], int(search.get("n_trials", 16)), int(search.get("seed", 0)))
+        else:
+            combos = list(_expand(cfg["model"].get("grid", {"num_leaves": [31], "min_child_samples": [100]})))
         best = None
-        for combo in _expand(grid):
+        for combo in combos:
             params = {**cfg["model"].get("params", {}), **combo}
             booster, used, dropped = _fit_lightgbm(X, y, Xv, yv, names, params, seed)
             pv = booster.predict(Xv, num_iteration=booster.best_iteration)
@@ -143,6 +147,22 @@ def train(cfg: dict, store: Store | None = None, run_id: str | None = None) -> P
                 best = (res, booster, dropped)
         res, model, dropped = best
         extra = {"dropped_features": dropped, "best_iteration": res["best_iteration"]}
+        n_seeds = int(cfg["model"].get("n_seeds", 1))
+        if n_seeds > 1:  # seed bagging of the selected configuration
+            from sepsis.models.ensemble import LGBMBag
+
+            boosters, iters = [model], [res["best_iteration"]]
+            for k in range(1, n_seeds):
+                bst, _, _ = _fit_lightgbm(X, y, Xv, yv, names, res["params"], seed + 1000 * k)
+                boosters.append(bst)
+                iters.append(int(bst.best_iteration))
+            model = LGBMBag(boosters, iters)
+            pv = model.predict(Xv)
+            bag = {"val_auprc": float(average_precision_score(yv, pv)), "val_auroc": float(roc_auc_score(yv, pv)),
+                   "n_seeds": n_seeds, "best_iterations": iters}
+            log.info("seed bag of %d -> AUPRC %.4f (single best %.4f)", n_seeds, bag["val_auprc"], res["val_auprc"])
+            extra = {"dropped_features": dropped, "bag": bag}
+            kind = "lightgbm_bag"
     else:
         raise ValueError(f"unknown model kind {kind}")
 
@@ -198,10 +218,32 @@ def _check_split(b, store) -> None:
         raise RuntimeError("bundle was trained on a different split; refusing")
 
 
+def _sample(space: dict, n: int, seed: int) -> list[dict]:
+    """``n`` distinct random combinations from a dict of candidate lists (deterministic)."""
+    rng = np.random.default_rng(seed)
+    keys, seen, out = list(space), set(), []
+    for _ in range(n * 20):
+        combo = {k: space[k][int(rng.integers(len(space[k])))] for k in keys}
+        sig = tuple((k, str(combo[k])) for k in keys)
+        if sig not in seen:
+            seen.add(sig)
+            out.append(combo)
+        if len(out) == n:
+            break
+    return out
+
+
 def _expand(grid: dict):
     keys = list(grid)
     for vals in itertools.product(*(grid[k] for k in keys)):
         yield dict(zip(keys, vals))
+
+
+def selection_auprc(meta: dict) -> float | None:
+    """Validation AUPRC of the model actually saved (the seed bag when there is one)."""
+    if meta.get("bag"):
+        return meta["bag"]["val_auprc"]
+    return max((t["val_auprc"] for t in meta.get("tuning_trials", [])), default=None)
 
 
 def promote(run_dirs: list[Path], out: Path) -> dict:
@@ -209,7 +251,7 @@ def promote(run_dirs: list[Path], out: Path) -> dict:
     rows = []
     for rd in run_dirs:
         b = load_bundle(rd)
-        best = max(t["val_auprc"] for t in b.meta["tuning_trials"])
+        best = selection_auprc(b.meta)
         rows.append({"run": b.model_version, "kind": b.meta["model_kind"], "val_auprc": best,
                      "feature_set": b.feature_config.feature_set})
     chosen = max(rows, key=lambda r: r["val_auprc"])

@@ -72,6 +72,8 @@ class ModelBundle:
 
     def raw_scores(self, X: np.ndarray) -> np.ndarray:
         kind = self.meta["model_kind"]
+        if kind == "lightgbm_bag":
+            return self.model.predict(X)
         if kind == "lightgbm":
             return self.model.predict(X, num_iteration=self.meta.get("best_iteration"))
         return self.model.predict_proba(X)[:, 1]
@@ -105,7 +107,9 @@ class ModelBundle:
         """
         x_row = np.asarray(x_row, dtype=np.float32).reshape(1, -1)
         names = self.feature_names
-        if self.meta["model_kind"] == "lightgbm":
+        if self.meta["model_kind"] == "lightgbm_bag":
+            pairs = list(zip(names, self.model.contributions(x_row)[0][:-1]))
+        elif self.meta["model_kind"] == "lightgbm":
             contrib = self.model.predict(x_row, num_iteration=self.meta.get("best_iteration"),
                                          pred_contrib=True)[0][:-1]
             pairs = list(zip(names, contrib))

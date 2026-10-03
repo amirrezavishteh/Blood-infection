@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -108,6 +109,11 @@ def evaluate(run_dir: Path, split: str, store: Store | None = None, n_boot: int 
     fr["probability"] = fr["score"].fillna(FALLBACK_PROBABILITY)
     fr["prediction"] = ((fr["status"] == "scored") & (fr["score"] >= thr)).astype(int)
     n_fallback = int((fr["status"] != "scored").sum())
+    # The official scorer is dominated by writing/reading one file per record (I/O releases the
+    # GIL), so it runs on a background thread while the in-process metrics are computed.
+    pool = ThreadPoolExecutor(max_workers=1) if official else None
+    official_future = pool.submit(run_official, fr[["stay_id", "hour_index", "label", "probability", "prediction"]].copy(),
+                                  out_dir / "official") if official else None
 
     policy = AlertPolicy.from_dict(b.policy)
     stays = prepare_stays(fr)
@@ -148,8 +154,8 @@ def evaluate(run_dir: Path, split: str, store: Store | None = None, n_boot: int 
                         "evaluation_seconds": None},
     }
     if official:
-        res["official"] = run_official(fr[["stay_id", "hour_index", "label", "probability", "prediction"]],
-                                       out_dir / "official")
+        res["official"] = official_future.result()
+        pool.shutdown()
     res["operational"]["evaluation_seconds"] = round(time.perf_counter() - t0, 1)
     fr.to_parquet(out_dir / "predictions.parquet", index=False)
     (out_dir / "metrics.json").write_text(json.dumps(res, indent=1, default=_json_default))

@@ -60,7 +60,7 @@ export type RunSummary = {
 export type Reliability = { bin_lower: number; bin_upper: number; n: number; mean_predicted: number; observed_rate: number };
 
 export type EvalFull = {
-  split: string; records: number;
+  split: string; records: number; evaluation_number_for_split?: number;
   hourly: { auroc: number; auprc: number; brier: number; positive_hour_prevalence: number;
             auroc_ci?: number[]; auprc_ci?: number[]; reliability: Reliability[]; rows_scored: number };
   benchmark: { utility: number; utility_ci?: number[]; threshold: number; fallback_rows: number };
@@ -74,9 +74,17 @@ export type EvalFull = {
 
 export type RunDetail = Omit<RunSummary, "evaluations"> & {
   evaluations: Record<string, EvalFull>;
+  explain?: Explain;
   policy_search?: { primary_budget: number; by_budget: Record<string, Record<string, number | boolean | string>> };
   selected_params?: Record<string, unknown>;
   calibration?: Record<string, unknown>;
+};
+
+export type Explain = {
+  family_share: Record<string, number>;
+  sample_rows: number; note: string;
+  top_features: { feature: string; family: string; importance_share: number; smd_b_vs_a: number | null;
+                  missing_a_train: number; missing_b: number }[];
 };
 
 export class ApiError extends Error {

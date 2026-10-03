@@ -12,11 +12,18 @@ export function ReplayWorkspace({ replayId, onSelectReplay }: { replayId: string
   const [tick, setTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ split: "a_test", n_stays: 12, seed: 0, enrich: true, enrich_fraction: 0.5, speed: 2 });
+  const [form, setForm] = useState({ split: "a_test", n_stays: 12, seed: 0, enrich: true, enrich_fraction: 0.5, speed: 2, model: "" });
+  const [models, setModels] = useState<{ id: string; label: string }[]>([]);
+  const [defaultModel, setDefaultModel] = useState<string | null>(null);
 
   useEffect(() => {
     api.datasets().then(setDatasets).catch(() => undefined);
     api.replays().then(setReplays).catch(() => undefined);
+    api.experiments().then((r) => {
+      setDefaultModel(r.default_model_version);
+      setModels(r.runs.filter((x) => x.calibrated && x.alert_policy)
+        .map((x) => ({ id: x.run_id, label: `${x.run_id} · ${x.model_kind} · val AUPRC ${x.validation_auprc?.toFixed(3) ?? "?"}` })));
+    }).catch(() => undefined);
   }, [replayId]);
 
   async function refresh() {
@@ -49,6 +56,7 @@ export function ReplayWorkspace({ replayId, onSelectReplay }: { replayId: string
       const r = await api.createReplay({
         dataset_id: ready.id, split: form.split, n_stays: form.n_stays, seed: form.seed,
         enrich_septic_fraction: form.enrich ? form.enrich_fraction : null, hours_per_second: form.speed,
+        ...(form.model ? { model_version: form.model } : {}),
       });
       setReplays((list) => [r, ...list]);
       onSelectReplay(r.id);
@@ -99,6 +107,12 @@ export function ReplayWorkspace({ replayId, onSelectReplay }: { replayId: string
               <select value={form.split} onChange={(e) => setForm({ ...form, split: e.target.value })}>
                 <option value="a_test">a_test (hospital A internal test)</option>
                 <option value="b_external">b_external (hospital B)</option>
+              </select>
+            </label>
+            <label className="field">Model
+              <select value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} style={{ maxWidth: 320 }}>
+                <option value="">default ({defaultModel ?? "none"})</option>
+                {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
               </select>
             </label>
             <label className="field">Records<input type="number" min={1} max={100} value={form.n_stays} onChange={(e) => setForm({ ...form, n_stays: +e.target.value })} style={{ width: 80 }} /></label>

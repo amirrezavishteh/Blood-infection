@@ -36,6 +36,10 @@ import pandas as pd
 from sepsis.data.schema import ADMINISTRATIVE, CLINICAL, DEMOGRAPHICS, LABS, VITALS
 
 FEATURE_SCHEMA_PREFIX = "causal-v1"
+V2_FLAGS = ("baseline_deltas", "organ_scores", "include_time")
+TIME_FEATURES = ["ICULOS", "HospAdmTime"]
+ORGAN_FEATURES = ["SOFA_coag", "SOFA_liver", "SOFA_renal", "SOFA_cardio_map", "SOFA_partial",
+                  "SOFA_components", "SF_ratio", "qSOFA_partial", "SIRS_partial", "abnormal_vitals"]
 
 
 @dataclass(frozen=True)
@@ -48,10 +52,16 @@ class FeatureConfig:
     count_window_h: int = 24
     stats: tuple[str, ...] = ("mean", "min", "max", "std", "slope")
     expiry_overrides: dict = field(default_factory=dict)
+    # v2 families (off by default; omitted from the schema hash when off, so v1 bundles keep loading)
+    baseline_deltas: bool = False
+    organ_scores: bool = False
+    include_time: bool = False
 
     def __post_init__(self):
         if self.feature_set not in ("basic", "extended"):
             raise ValueError(f"unknown feature_set {self.feature_set!r}")
+        if self.include_time and self.include_admin:
+            raise ValueError("include_admin already contains the time features; use one of them")
 
     def expiry(self, var: str) -> int:
         if var in self.expiry_overrides:
@@ -62,6 +72,9 @@ class FeatureConfig:
         d = asdict(self)
         d["windows"] = list(self.windows)
         d["stats"] = list(self.stats)
+        for k in V2_FLAGS:  # keep v1 schema hashes stable
+            if not d[k]:
+                del d[k]
         return d
 
     @classmethod
@@ -87,8 +100,14 @@ def feature_names(cfg: FeatureConfig) -> list[str]:
         names += [f"{v}__observed" for v in CLINICAL]
         names += [f"{v}__hours_since" for v in CLINICAL]
         names += [f"vitals__count_{cfg.count_window_h}h", f"labs__count_{cfg.count_window_h}h"]
+    if cfg.baseline_deltas:
+        names += [f"{v}__from_first" for v in CLINICAL]
+    if cfg.organ_scores:
+        names += ORGAN_FEATURES
     if cfg.include_admin:
         names += list(ADMINISTRATIVE)
+    if cfg.include_time:
+        names += TIME_FEATURES
     return names
 
 
@@ -231,8 +250,33 @@ def compute_features(df: pd.DataFrame, cfg: FeatureConfig | None = None) -> pd.D
             base = np.where(prev >= start_of_row, base, before)
             out[f"{name}__count_{w}h"] = csum - base
 
+    if cfg.baseline_deltas:
+        # change from the first value observed in this record so far (a personal baseline);
+        # the first observation is only used once it lies at or before the scored hour
+        for v in CLINICAL:
+            obs = obs_flags[v]
+            first_idx = np.full(n, -1)
+            obs_rows = np.flatnonzero(obs)
+            if len(obs_rows):
+                grp_start = start_of_row[obs_rows]
+                uniq, first_pos = np.unique(grp_start, return_index=True)
+                first_of_group = dict(zip(uniq.tolist(), obs_rows[first_pos].tolist()))
+                starts = np.unique(start_of_row)
+                lookup = np.array([first_of_group.get(int(g), -1) for g in starts])
+                first_idx = lookup[np.searchsorted(starts, start_of_row)]
+            x = df[v].to_numpy(dtype=np.float64)
+            ok = (first_idx >= 0) & (first_idx <= rows)
+            base = np.where(ok, x[np.maximum(first_idx, 0)], np.nan)
+            out[f"{v}__from_first"] = out[f"{v}__last"] - base
+
+    if cfg.organ_scores:
+        out.update(_organ_scores(out))
+
     if cfg.include_admin:
         for v in ADMINISTRATIVE:
+            out[v] = df[v].to_numpy(dtype=np.float64)
+    if cfg.include_time:
+        for v in TIME_FEATURES:
             out[v] = df[v].to_numpy(dtype=np.float64)
 
     names = feature_names(cfg)
@@ -240,6 +284,55 @@ def compute_features(df: pd.DataFrame, cfg: FeatureConfig | None = None) -> pd.D
     feats.insert(0, "hour_index", hours.astype(np.int32))
     feats.insert(0, "stay_id", sid)
     return feats
+
+
+def _graded(x: np.ndarray, cuts: list[float], descending: bool = False) -> np.ndarray:
+    """SOFA-style 0-4 grade from ordered cut points; NaN stays NaN (unknown is not normal)."""
+    g = np.zeros(len(x))
+    for c in cuts:
+        g += (x < c) if descending else (x >= c)
+    return np.where(np.isnan(x), np.nan, g)
+
+
+def _count_criteria(conds: list[tuple[np.ndarray, np.ndarray]]) -> np.ndarray:
+    """Sum of criteria met; NaN when none of the inputs is available."""
+    met = np.zeros(len(conds[0][0]))
+    avail = np.zeros(len(conds[0][0]))
+    for value_known, hit in conds:
+        met += np.where(value_known, hit, 0.0)
+        avail += value_known
+    return np.where(avail > 0, met, np.nan)
+
+
+def _organ_scores(out: dict) -> dict:
+    """Partial SOFA components, oxygenation and screening counts from latest valid values.
+
+    Only components computable from the challenge variables are included (no GCS, PaO2,
+    vasopressors or urine output), so these are partial scores, not SOFA.
+    """
+    plt, bili, crea = out["Platelets__last"], out["Bilirubin_total__last"], out["Creatinine__last"]
+    mapv, hr, rr, temp = out["MAP__last"], out["HR__last"], out["Resp__last"], out["Temp__last"]
+    sbp, spo2, fio2, wbc = out["SBP__last"], out["O2Sat__last"], out["FiO2__last"], out["WBC__last"]
+    res = {
+        "SOFA_coag": _graded(plt, [150, 100, 50, 20], descending=True),
+        "SOFA_liver": _graded(bili, [1.2, 2.0, 6.0, 12.0]),
+        "SOFA_renal": _graded(crea, [1.2, 2.0, 3.5, 5.0]),
+        "SOFA_cardio_map": np.where(np.isnan(mapv), np.nan, (mapv < 70).astype(float)),
+    }
+    comps = np.vstack([res["SOFA_coag"], res["SOFA_liver"], res["SOFA_renal"], res["SOFA_cardio_map"]])
+    avail = (~np.isnan(comps)).sum(axis=0)
+    res["SOFA_components"] = avail.astype(float)
+    res["SOFA_partial"] = np.where(avail > 0, np.nansum(comps, axis=0), np.nan)
+    valid_fio2 = (fio2 >= 0.21) & (fio2 <= 1.0)  # fraction; other encodings are left unconverted
+    with np.errstate(divide="ignore", invalid="ignore"):
+        res["SF_ratio"] = np.where(valid_fio2 & ~np.isnan(spo2), spo2 / fio2, np.nan)
+    k = lambda a: ~np.isnan(a)
+    res["qSOFA_partial"] = _count_criteria([(k(rr), rr >= 22), (k(sbp), sbp <= 100)])
+    res["SIRS_partial"] = _count_criteria([(k(temp), (temp > 38) | (temp < 36)), (k(hr), hr > 90),
+                                           (k(rr), rr > 20), (k(wbc), (wbc > 12) | (wbc < 4))])
+    res["abnormal_vitals"] = _count_criteria([(k(hr), hr > 90), (k(rr), rr > 20), (k(temp), (temp > 38) | (temp < 36)),
+                                              (k(mapv), mapv < 65), (k(spo2), spo2 < 92), (k(sbp), sbp < 90)])
+    return res
 
 
 def features_at(history: pd.DataFrame, cfg: FeatureConfig | None = None) -> pd.Series:

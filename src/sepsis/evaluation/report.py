@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from sepsis.models.bundle import bundle_root
+from sepsis.models.train import selection_auprc
 
 
 def json_safe(o):
@@ -38,13 +39,16 @@ def collect_runs() -> list[dict]:
             "calibrated": bool(meta.get("calibration")),
             "alert_policy": meta.get("alert_policy"),
             "benchmark_threshold": meta.get("benchmark_threshold"),
-            "validation_auprc": max((t["val_auprc"] for t in meta.get("tuning_trials", [])), default=None),
+            "validation_auprc": selection_auprc(meta),
             "provenance": {k: meta["provenance"].get(k) for k in ("split_hash", "code_revision", "created_at",
                                                                   "raw_manifest_sha256", "train_rows")},
             "evaluations": {},
         }
         for ev in sorted((rd / "eval").glob("*/metrics.json")) if (rd / "eval").exists() else []:
             entry["evaluations"][ev.parent.name] = json.loads(ev.read_text())
+        ex = rd / "explain.json"
+        if ex.exists():
+            entry["explain"] = json.loads(ex.read_text())
         ps = rd / "policy_search.json"
         if ps.exists():
             pol = json.loads(ps.read_text())

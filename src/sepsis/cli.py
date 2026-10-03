@@ -146,6 +146,17 @@ def cmd_promote(a):
     print(json.dumps(promote([_resolve_run(r) for r in a.runs], out), indent=1))
 
 
+def cmd_explain(a):
+    from sepsis.evaluation.explain import explain
+
+    r = explain(_resolve_run(a.run), sample=a.sample)
+    print("importance by family:", {k: round(v, 3) for k, v in r["family_share"].items()})
+    for row in r["top_features"][:15]:
+        smd = row["smd_b_vs_a"]
+        print(f"  {row['feature']:<28} {row['family']:<20} {row['importance_share']:.3f}  "
+              f"SMD(B-A) {'n/a' if smd is None else f'{smd:+.2f}'}  missing A {row['missing_a_train']:.2f} B {row['missing_b']:.2f}")
+
+
 def cmd_fixture(a):
     from sepsis.data.synthetic import make_fixture
 
@@ -250,6 +261,10 @@ def main(argv=None):
     s.set_defaults(fn=cmd_evaluate)
 
     s = sub.add_parser("promote"); s.add_argument("--runs", nargs="+", required=True); s.set_defaults(fn=cmd_promote)
+
+    s = sub.add_parser("explain", help="global importance + hospital-B feature shift for a run")
+    s.add_argument("--run", required=True); s.add_argument("--sample", type=int, default=20000)
+    s.set_defaults(fn=cmd_explain)
 
     s = sub.add_parser("fixture"); s.add_argument("--out", required=True)
     s.add_argument("--n-a", type=int, default=120); s.add_argument("--n-b", type=int, default=60)

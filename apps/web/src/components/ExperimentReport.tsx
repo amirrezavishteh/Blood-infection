@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type EvalFull, type RunDetail, type RunSummary } from "../api";
+import { api, type EvalFull, type Explain, type RunDetail, type RunSummary } from "../api";
 import { ReliabilityChart } from "../charts/ReliabilityChart";
 
 const f3 = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(3));
@@ -94,7 +94,7 @@ function RunDetailView({ d, onExport }: { d: RunDetail; onExport: () => void }) 
           <div className="table-wrap">
             <table>
               <thead><tr><th>Split</th><th className="num">Records</th><th className="num">AUROC (95% CI)</th><th className="num">AUPRC (95% CI)</th>
-                <th className="num">Brier</th><th className="num">Utility (95% CI)</th><th className="num">Official utility</th><th className="num">Coverage</th></tr></thead>
+                <th className="num">Brier</th><th className="num">Utility (95% CI)</th><th className="num">Official utility</th><th className="num">Coverage</th><th className="num" title="How many times this run was scored on this split; above 1 means a repeated look">Look</th></tr></thead>
               <tbody>
                 {evals.map(([s, e]) => (
                   <tr key={s}>
@@ -105,6 +105,7 @@ function RunDetailView({ d, onExport }: { d: RunDetail; onExport: () => void }) 
                     <td className="num">{f3(e.benchmark.utility)} <span className="muted small">{ci(e.benchmark.utility_ci)}</span></td>
                     <td className="num">{e.official ? f3(e.official.Utility as number) : "—"}</td>
                     <td className="num">{(e.coverage.coverage * 100).toFixed(1)}%</td>
+                    <td className="num">{e.evaluation_number_for_split ?? "—"}{(e.evaluation_number_for_split ?? 1) > 1 ? " ⚠" : ""}</td>
                   </tr>
                 ))}
               </tbody>
@@ -148,6 +149,7 @@ function RunDetailView({ d, onExport }: { d: RunDetail; onExport: () => void }) 
         </div>
       </div>
 
+      {d.explain && <ExplainView x={d.explain} />}
       {evals.filter(([s]) => s !== "a_validation").map(([s, e]) => <SplitDetail key={s} split={s} e={e} />)}
     </div>
   );
@@ -195,6 +197,47 @@ function SplitDetail({ split, e }: { split: string; e: EvalFull }) {
           </table>
           <div className="small muted">Partial rule scores from the latest values; GCS and culture data are not available in this dataset.</div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ExplainView({ x }: { x: Explain }) {
+  const max = Math.max(...x.top_features.map((f) => f.importance_share), 1e-9);
+  return (
+    <div className="card stack">
+      <h2>What the model relies on, and how it shifts at hospital B</h2>
+      <div className="kpis">
+        {Object.entries(x.family_share).map(([fam, share]) => (
+          <div key={fam} className="kpi"><div className="label">{fam}</div><div className="value">{(share * 100).toFixed(0)}%</div></div>
+        ))}
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>Feature</th><th>Family</th><th style={{ width: "30%" }}>Share of importance</th>
+            <th className="num" title="Standardised mean difference, hospital B minus A training">Shift (SMD)</th>
+            <th className="num">Missing A</th><th className="num">Missing B</th></tr></thead>
+          <tbody>
+            {x.top_features.slice(0, 15).map((f) => (
+              <tr key={f.feature}>
+                <td className="mono">{f.feature}</td><td className="small">{f.family}</td>
+                <td>
+                  <span style={{ display: "inline-block", height: 10, borderRadius: 2, verticalAlign: "middle",
+                                 width: `${(f.importance_share / max) * 80}%`, background: "var(--series-1)",
+                                 opacity: f.family === "observation pattern" ? 0.45 : 1 }} />
+                  <span className="small"> {(f.importance_share * 100).toFixed(1)}%</span>
+                </td>
+                <td className="num">{f.smd_b_vs_a == null ? "—" : `${f.smd_b_vs_a > 0 ? "+" : ""}${f.smd_b_vs_a.toFixed(2)}`}{f.smd_b_vs_a != null && Math.abs(f.smd_b_vs_a) >= 0.5 ? " ⚠" : ""}</td>
+                <td className="num">{(f.missing_a_train * 100).toFixed(0)}%</td>
+                <td className="num">{(f.missing_b * 100).toFixed(0)}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="small muted">
+        Mean absolute contribution on {x.sample_rows.toLocaleString()} A-validation hours. Observation-pattern features (lighter bars) can
+        encode local charting habits rather than physiology. ⚠ marks a large shift (|SMD| ≥ 0.5). Hospital B outcomes are not used here.
       </div>
     </div>
   );
