@@ -101,6 +101,7 @@ python -m sepsis report
 python -m sepsis serve
 ```
 
+- `python -m sepsis explain --run lgbm-ext` writes which feature families the model relies on and how its top features shift at hospital B; `python -m sepsis model-card --run lgbm-ext` writes `MODEL_CARD.md` from the run's own files.
 - The download resumes if interrupted; rerun the same command.
 - `infra/run_pipeline.ps1` trains and evaluates all three models (logistic, LightGBM, extended LightGBM) and promotes the best one on validation.
 - `--run latest` refers to the newest run.
@@ -123,10 +124,12 @@ cd apps/web && npm run dev             # terminal 2: dashboard on http://127.0.0
 ### Tests
 
 ```bash
-python -m pytest                       # 71 tests: core, API/worker, embedded PostgreSQL
+python -m pytest                       # 82 tests: core, API/worker, embedded PostgreSQL
 cd apps/web && npx vitest run          # dashboard tests
 bash infra/smoke.sh                    # 2-minute end-to-end pipeline check on synthetic data
 ```
+
+The same checks run on every push and pull request through GitHub Actions (`.github/workflows/ci.yml`).
 
 ### Configuration
 
