@@ -2,8 +2,13 @@
 # Clean-machine smoke test on a synthetic fixture (no download, ~1-2 minutes).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-PY=${PY:-.venv/Scripts/python}
-[ -x "$PY" ] || PY=.venv/bin/python
+# Interpreter: $PY if given (a path or a command on PATH), else the project venv, else python3/python.
+if [ -z "${PY:-}" ]; then
+  for c in .venv/Scripts/python .venv/bin/python python3 python; do
+    if [ -x "$c" ] || command -v "$c" >/dev/null 2>&1; then PY=$c; break; fi
+  done
+fi
+command -v "$PY" >/dev/null 2>&1 || [ -x "$PY" ] || { echo "no Python interpreter found (set PY=...)"; exit 1; }
 WS=$(mktemp -d)
 S="$PY -m sepsis --data-dir $WS/data --artifact-dir $WS/artifacts"
 $S fixture --out "$WS/data/raw/physionet2019" --n-a 400 --n-b 200

@@ -7,6 +7,8 @@ COPY apps/web/ ./
 RUN npm run build
 
 FROM python:3.12-slim
+# LightGBM needs the OpenMP runtime, which the slim image does not include
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/src:/app/apps
 COPY pyproject.toml ./

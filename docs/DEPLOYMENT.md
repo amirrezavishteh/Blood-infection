@@ -116,7 +116,7 @@ These steps assume Ubuntu 24.04 and the domain `sepsis.example.org`. Replace the
 
 ```bash
 sudo apt update
-sudo apt install -y git python3.12-venv postgresql nginx certbot python3-certbot-nginx
+sudo apt install -y git python3.12-venv libgomp1 postgresql nginx certbot python3-certbot-nginx
 ```
 
 The dashboard build needs Node 20 or newer. Ubuntu's own package is older, so install it from [NodeSource](https://github.com/nodesource/distributions), or build `apps/web/dist` on another machine and copy that folder over.
@@ -266,4 +266,5 @@ No restart is needed.
 | Dataset stays *failed* | Processed files changed after `prepare`, or no split file | Rerun `prepare`; the error text names the file |
 | Download stops with "N files failed" | Server-side timeouts at physionet.org | Run the same download command again; it resumes and fetches only missing files |
 | Replay does not move after **Play** | Worker stopped | Start the worker; queued steps continue where they left off |
+| `OSError: libgomp.so.1: cannot open shared object file` | The OpenMP runtime LightGBM needs is missing | `sudo apt install libgomp1` (the Docker image installs it) |
 | Old dashboard after an update | Browser cache | Hard refresh (Ctrl+Shift+R); `index.html` is served with `no-cache`, so this should be rare |
