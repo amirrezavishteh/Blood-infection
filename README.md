@@ -6,6 +6,8 @@ A retrospective research application that replays de-identified ICU records hour
 
 ## Results on the real PhysioNet 2019 data
 
+### Round 1
+
 All three models were trained on hospital A, calibrated and given a frozen alert policy on hospital A data, and then scored **once** on held-out records: the hospital A internal test (3,050 records) and all of hospital B (20,000 records), a different hospital never used for any choice. 95% intervals come from 200 record-level bootstrap resamples.
 
 | Model | Split | Hourly AUROC | Hourly AUPRC | Official utility | Early detection* | Alert precision | Alerts / 100 patient-days |
@@ -25,7 +27,25 @@ All three models were trained on hospital A, calibrated and given a frozen alert
 - **Measurement-pattern features helped and transferred best here**, but they can encode local ordering habits (in the dashboard, "hours since the last lactate" is often a top driver), so this result needs checking at more hospitals.
 - Positive-hour prevalence is 2.2% (A) and 1.4% (B), so a random score has AUPRC around 0.02 and 0.014.
 
-Full per-run reports (calibration, subgroups, lead times, official-scorer files) are written to `artifacts/runs/<run>/eval/<split>/`.
+### Round 2: richer features, tuning and seed bagging
+
+Round 2 added v2 causal features (24 h vital windows, change from each patient's first value, partial SOFA components, SpO2/FiO2 ratio, missing-aware screening counts), a 12-trial hyperparameter search on validation AUPRC and a 3-seed bag of the winner. Selection used hospital A validation data only.
+
+| Model | Split | Hourly AUROC (95% CI) | AUPRC | Official utility (95% CI) | Early detection | Alert precision | Alerts / 100 patient-days |
+|---|---|---|---|---|---|---|---|
+| Physiology only (v2 basic) | A test | 0.793 (0.767–0.817) | 0.088 | 0.370 (0.316–0.417) | 17.3% | 11.7% | 9.8 |
+| Physiology only (v2 basic) | Hospital B | 0.765 (0.752–0.777) | 0.063 | 0.222 (0.195–0.245) | 9.6% | 15.8% | 2.5 |
+| **v2 + measurement patterns (promoted)** | A test | **0.805 (0.783–0.828)** | **0.091** | 0.369 (0.317–0.425) | 17.7% | 12.8% | 9.8 |
+| **v2 + measurement patterns (promoted)** | Hospital B | **0.786 (0.775–0.798)** | **0.063** | **0.249 (0.218–0.273)** | 11.4% | 16.1% | 2.9 |
+| v2 + time in ICU (ablation, not promoted) | A test | 0.822 (0.799–0.845) | 0.115 | 0.402 (0.348–0.444) | 18.6% | 17.7% | 6.5 |
+| v2 + time in ICU (ablation, not promoted) | Hospital B | 0.810 (0.800–0.821) | 0.080 | 0.296 (0.270–0.326) | 20.1% | 15.0% | 4.8 |
+
+- The promoted round-2 model is modestly better at hospital B than round 1 (AUROC 0.786 vs 0.776, overlapping intervals; alert precision 16.1% vs 12.1%; false alerts in non-septic patients 1.2 vs 1.8 per 100 patient-days). Its A-test utility is lower (0.369 vs 0.393).
+- The top feature is *hours since FiO2 was last charted* (9.1% of importance; FiO2 missing in 42% of A hours vs 71% at B). Measurement-pattern features carry 22% of importance and still helped at hospital B here.
+- Time in ICU (`ICULOS`) is the strongest single addition (11% of importance) but was excluded from promotion in advance: in this dataset it may reflect how records were cut. It should be tested on independent data first.
+- The A-test and hospital-B records had already been scored in round 1, so round-2 test results are a second look and may be slightly optimistic. Each run's `evaluation_log.json` records every look.
+
+The promoted model's card is in [docs/MODEL_CARD.md](docs/MODEL_CARD.md). Full per-run reports (calibration, subgroups, lead times, official-scorer files, explanations) are written to `artifacts/runs/<run>/`.
 
 
 ## What is in the box

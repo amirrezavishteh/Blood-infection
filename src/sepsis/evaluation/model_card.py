@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from sepsis.models.bundle import load_bundle
+from sepsis.models.bundle import bundle_root, load_bundle
 from sepsis.models.train import selection_auprc
 
 SPLIT_NAMES = {"a_test": "Hospital A internal test", "b_external": "Hospital B (external)"}
@@ -22,6 +22,22 @@ def _ci(c) -> str:
 
 def _pct(x) -> str:
     return "n/a" if x is None else f"{100 * x:.1f}%"
+
+
+def prior_looks_by_other_runs(run_dir: Path, split: str) -> int:
+    """Evaluations of ``split`` by other runs logged before this run's first look at it."""
+    def log(rd: Path) -> list:
+        f = rd / "evaluation_log.json"
+        return json.loads(f.read_text()) if f.exists() else []
+    mine = [e["at"] for e in log(Path(run_dir)) if e["split"] == split]
+    if not mine:
+        return 0
+    first = min(mine)
+    n = 0
+    for rd in bundle_root().iterdir():
+        if rd.resolve() != Path(run_dir).resolve():
+            n += sum(1 for e in log(rd) if e["split"] == split and e["at"] < first)
+    return n
 
 
 def build_model_card(run_dir: Path) -> Path:
@@ -73,14 +89,16 @@ def build_model_card(run_dir: Path) -> Path:
     if not evals:
         L.append("Not evaluated yet.")
     else:
-        L += ["| Split | Records | Look | Hourly AUROC (95% CI) | AUPRC | Official utility (95% CI) | Brier | Early detection | Alert precision | Alerts / 100 pd |",
-              "|---|---|---|---|---|---|---|---|---|---|"]
+        L += ["| Split | Records | Look (this run) | Earlier looks (other runs) | Hourly AUROC (95% CI) | AUPRC | Official utility (95% CI) | Brier | Early detection | Alert precision | Alerts / 100 pd |",
+              "|---|---|---|---|---|---|---|---|---|---|---|"]
         for s, e in evals.items():
             h, bm, a = e["hourly"], e["benchmark"], e["alerts"]
-            L.append(f"| {SPLIT_NAMES[s]} | {e['records']:,} | {e.get('evaluation_number_for_split', 1)} | "
+            L.append(f"| {SPLIT_NAMES[s]} | {e['records']:,} | {e.get('evaluation_number_for_split', 1)} | {prior_looks_by_other_runs(run_dir, s)} | "
                      f"{h['auroc']:.3f}{_ci(h.get('auroc_ci'))} | {h['auprc']:.3f} | {bm['utility']:.3f}{_ci(bm.get('utility_ci'))} | "
                      f"{h['brier']:.4f} | {_pct(a['early_sensitivity'])} | {_pct(a['alert_precision'])} | {a['alerts_per_100_patient_days']:.1f} |")
-        L += ["", "Look > 1 means the split had been scored before for this run; repeated looks can make results optimistic.", ""]
+        L += ["", "Look counts come from each run's evaluation log. Any earlier look at the same records, by this run or "
+              "another, means the result is not an untouched estimate and may be slightly optimistic; model choices "
+              "were made on validation data only.", ""]
         for s, e in evals.items():
             L += [f"### Subgroups: {SPLIT_NAMES[s]}", "", "| Subgroup | Records | Septic | AUROC (95% CI) | Note |", "|---|---|---|---|---|"]
             for g in e["subgroups"]:
