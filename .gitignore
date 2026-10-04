@@ -1,8 +1,8 @@
 # Research data and derived artifacts (row-level; governed by source terms)
-data/
-artifacts/
-!data/.gitkeep
-!artifacts/.gitkeep
+/data/
+/artifacts/
+!/data/.gitkeep
+!/artifacts/.gitkeep
 
 # Python
 .venv/
