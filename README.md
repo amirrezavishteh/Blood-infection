@@ -1,5 +1,7 @@
 # Sepsis early-warning research simulator
 
+[![CI](https://github.com/amirrezavishteh/Blood-infection/actions/workflows/ci.yml/badge.svg)](https://github.com/amirrezavishteh/Blood-infection/actions/workflows/ci.yml)
+
 A retrospective research application that replays de-identified ICU records hour by hour, computes a **research sepsis score**, shows its trajectory and contributing measurements, and evaluates an explicit, versioned alert policy. It is built on the open **PhysioNet/CinC Challenge 2019** dataset.
 
 > **Not for patient care.** The score estimates the PhysioNet 2019 benchmark state (`challenge2019_state`). It is not a cleared diagnostic device, not a clinically validated probability, and not a prediction of *new* sepsis in the next six hours. Retrospective results do not establish clinical benefit.
@@ -149,7 +151,7 @@ cd apps/web && npx vitest run          # dashboard tests
 bash infra/smoke.sh                    # 2-minute end-to-end pipeline check on synthetic data
 ```
 
-The same checks run on every push and pull request through GitHub Actions (`.github/workflows/ci.yml`).
+The same checks run on every push and pull request through GitHub Actions (`.github/workflows/ci.yml`) on Ubuntu.
 
 ### Configuration
 
